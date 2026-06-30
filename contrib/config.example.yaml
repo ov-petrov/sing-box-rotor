@@ -1,0 +1,21 @@
+test_url: "https://www.google.com/generate_204"
+test_timeout: "10s"
+request_method: "GET"
+check_interval: "5m"
+recheck_interval: "30m"
+fail_threshold: 2
+switch_cooldown: "10m"
+
+singbox:
+  binary: "/usr/local/bin/sing-box"
+  config_path: "/etc/sing-box/config.json"
+  service_name: "sing-box"
+  inbound_listen: "127.0.0.1:2080"
+
+subscriptions:
+  - name: "example-json"
+    url: "https://example.com/sing-box.json"
+    type: "sing-box-json"
+  - name: "example-base64"
+    url: "https://example.com/sub"
+    type: "base64"

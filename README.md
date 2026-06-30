@@ -13,7 +13,7 @@ A Linux daemon that automatically selects the fastest available sing-box configu
 ## Documentation
 
 - [Design Specification](docs/superpowers/specs/2026-06-30-sing-box-rotor-design.md)
-- Implementation plan (coming soon)
+- [Implementation Plan](docs/superpowers/plans/2026-06-30-sing-box-rotor.md)
 
 ## Quick start
 
@@ -30,7 +30,26 @@ sudo systemctl start sing-box-rotor
 
 ## Configuration example
 
-See `config.example.yaml` (to be added).
+See [`contrib/config.example.yaml`](contrib/config.example.yaml).
+
+## Current implementation status
+
+The repository now contains the v1 daemon skeleton described in the plan:
+
+- YAML config loading and validation.
+- Subscription fetching for `sing-box-json` and base64 proxy-list sources.
+- Basic VMess, VLESS, Shadowsocks, and Trojan link parsing.
+- Candidate sing-box config generation.
+- Temporary sing-box runner with isolated local SOCKS inbound.
+- HTTP latency checker with HTTP and SOCKS5 proxy support.
+- Selector hysteresis state machine.
+- Atomic config write, backup, and systemd restart manager.
+- CLI entry point with `--config`, `--once`, `--version`, and verbose logging.
+- systemd unit and install script under `contrib/` and `scripts/`.
+
+Unit tests are included for the implemented packages. They are designed to avoid
+real subscription URLs, real `systemctl`, and real sing-box processes unless a
+caller explicitly runs the daemon.
 
 ## License
 
