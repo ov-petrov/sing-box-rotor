@@ -31,3 +31,4 @@ vendor/
 
 # Local test fixtures that may contain real data
 /testdata/real/
+/internal/config/testdata/real/
