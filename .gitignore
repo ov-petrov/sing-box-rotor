@@ -1,0 +1,33 @@
+# Binaries
+sing-box-rotor
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+/bin/
+/dist/
+*.log
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local secrets and configs — never commit real credentials
+/config.yaml
+/config.yml
+/etc/
+*.key
+*.secret
+*.env
+.env*
+
+# Local test fixtures that may contain real data
+/testdata/real/
