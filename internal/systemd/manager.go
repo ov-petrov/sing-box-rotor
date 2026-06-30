@@ -47,7 +47,11 @@ func (m *Manager) Apply(ctx context.Context, candidate subscription.CandidateCon
 	if err := backupIfExists(m.Config.ConfigPath); err != nil {
 		return err
 	}
-	if err := atomicWrite(m.Config.ConfigPath, raw, 0o644); err != nil {
+	mode, err := privateModeFor(m.Config.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(m.Config.ConfigPath, raw, mode); err != nil {
 		return err
 	}
 	if err := m.Runner.Run(ctx, "systemctl", "restart", m.Config.Service); err != nil {
@@ -71,7 +75,8 @@ func (m *Manager) Apply(ctx context.Context, candidate subscription.CandidateCon
 }
 
 func backupIfExists(path string) error {
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
@@ -81,7 +86,25 @@ func backupIfExists(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".bak", input, 0o644)
+	return os.WriteFile(path+".bak", input, privateFileMode(info.Mode().Perm()))
+}
+
+func privateModeFor(path string) (os.FileMode, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0o600, nil
+		}
+		return 0, err
+	}
+	return privateFileMode(info.Mode().Perm()), nil
+}
+
+func privateFileMode(mode os.FileMode) os.FileMode {
+	if mode == 0 || mode&0o077 != 0 {
+		return 0o600
+	}
+	return mode
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

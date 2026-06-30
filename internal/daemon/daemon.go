@@ -26,11 +26,17 @@ type CandidateEvaluator interface {
 	Evaluate(context.Context, []subscription.CandidateConfig) ([]checker.Result, error)
 }
 
+type CurrentProbe interface {
+	Probe(context.Context) error
+}
+
 type Rotor struct {
 	Config    *config.Config
 	Fetcher   Fetcher
 	Applier   Applier
 	Evaluator CandidateEvaluator
+	Probe     CurrentProbe
+	Selector  *selector.Selector
 	Log       *slog.Logger
 }
 
@@ -44,10 +50,22 @@ func New(cfg *config.Config, f Fetcher, a Applier, log *slog.Logger) *Rotor {
 	if a == nil {
 		a = systemd.New(cfg.SingBox, nil)
 	}
-	return &Rotor{Config: cfg, Fetcher: f, Applier: a, Evaluator: liveEvaluator{cfg: cfg}, Log: log}
+	return &Rotor{
+		Config:    cfg,
+		Fetcher:   f,
+		Applier:   a,
+		Evaluator: liveEvaluator{cfg: cfg},
+		Probe:     liveCurrentProbe{cfg: cfg},
+		Selector:  selector.New("", cfg.FailThreshold, cfg.SwitchCooldown, time.Now()),
+		Log:       log,
+	}
 }
 
 func (r *Rotor) RunOnce(ctx context.Context) error {
+	return r.evaluateAndApply(ctx)
+}
+
+func (r *Rotor) evaluateAndApply(ctx context.Context) error {
 	candidates, err := r.Fetcher.Fetch(ctx, r.Config.Subscriptions)
 	if err != nil {
 		return err
@@ -63,12 +81,24 @@ func (r *Rotor) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sel := selector.New("", 1, 0, time.Now())
-	decision := sel.Choose(results, time.Now())
+	now := time.Now()
+	decision := r.Selector.Choose(results, now)
 	if decision.Kind != selector.SwitchCandidate {
-		return fmt.Errorf("no healthy candidates")
+		if decision.Reason == "no healthy candidates" {
+			return fmt.Errorf("no healthy candidates")
+		}
+		r.Log.Debug("keeping current candidate", "reason", decision.Reason, "target", decision.Target)
+		return nil
 	}
-	return r.Applier.Apply(ctx, byName[decision.Target])
+	candidate, ok := byName[decision.Target]
+	if !ok {
+		return fmt.Errorf("selected candidate %q was not found", decision.Target)
+	}
+	if err := r.Applier.Apply(ctx, candidate); err != nil {
+		return err
+	}
+	r.Selector.MarkSwitched(decision.Target, now)
+	return nil
 }
 
 type liveEvaluator struct {
@@ -96,6 +126,19 @@ func (e liveEvaluator) Evaluate(ctx context.Context, candidates []subscription.C
 	return results, nil
 }
 
+type liveCurrentProbe struct {
+	cfg *config.Config
+}
+
+func (p liveCurrentProbe) Probe(ctx context.Context) error {
+	chk, err := checker.New("socks5://"+p.cfg.SingBox.Inbound, p.cfg.TestTimeout, p.cfg.RequestMethod)
+	if err != nil {
+		return err
+	}
+	_, err = chk.Probe(ctx, p.cfg.TestURL)
+	return err
+}
+
 func (r *Rotor) Run(ctx context.Context) error {
 	if err := r.RunOnce(ctx); err != nil {
 		return err
@@ -109,11 +152,25 @@ func (r *Rotor) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-check.C:
-			r.Log.Debug("periodic current check tick")
+			if err := r.checkCurrent(ctx); err != nil {
+				r.Log.Warn("current check handling failed", "error", err)
+			}
 		case <-recheck.C:
-			if err := r.RunOnce(ctx); err != nil {
+			if err := r.evaluateAndApply(ctx); err != nil {
 				r.Log.Warn("recheck failed", "error", err)
 			}
 		}
 	}
+}
+
+func (r *Rotor) checkCurrent(ctx context.Context) error {
+	err := r.Probe.Probe(ctx)
+	decision := r.Selector.CurrentCheck(err == nil)
+	if err != nil {
+		r.Log.Warn("current config probe failed", "error", err, "decision", decision.Reason)
+	}
+	if decision.Kind != selector.EvaluateCandidates {
+		return nil
+	}
+	return r.evaluateAndApply(ctx)
 }
